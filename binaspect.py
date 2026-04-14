@@ -5,13 +5,15 @@ import matplotlib.pyplot as plot
 import colormap
 
 
-def ITD_spect(input_file, sr, start_freq=50, stop_freq=620, plots=False):
+def ITD_spect(input_file, sr, window_size=4096, overlap=0.75, start_freq=50, stop_freq=620, plots=False):
     # Calculate the ITD spectragram of a stereo or binaural audio file
     
     # Setup the parameters
-    window_size = 4096                         # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
     bin_width = sr/window_size                   # Width of the frequency bins
 
     # check if the frequency range is valid
@@ -66,9 +68,9 @@ def ITD_spect(input_file, sr, start_freq=50, stop_freq=620, plots=False):
             # calculate the wrapped phase difference
             wrapped_phase_diff = np.mod(phasediff + np.pi, 2*np.pi) - np.pi
 
-            # convert the wrapped phase difference to a delay in seconds
-            bindelay = wrapped_phase_diff / (2 * np.pi * bin_width * bin)
-             
+            # convert the wrapped phase difference to a delay in microseconds
+            bindelay = wrapped_phase_diff / (2 * np.pi * bin_width * bin) * 1e6
+ 
             if intensity[bin, frame] >= 0.00:
             
                 ITD_spectra[bin, frame] = bindelay
@@ -89,14 +91,16 @@ def ITD_spect(input_file, sr, start_freq=50, stop_freq=620, plots=False):
 
     return ITD_spectra
 
-def IPD_spect(input_file, sr, start_freq=50, stop_freq=620, wrapped=False, plots=False):
+def IPD_spect(input_file, sr, window_size=4096, overlap=0.75, start_freq=50, stop_freq=620, wrapped=False, plots=False):
     # Calculate the IPD spectragram of a stereo or binaural audio file
     
     # Setup the parameters
-    window_size = 4096                         # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
-    bin_width = sr/window_size                   # Width of the frequency bins
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
 
     # check if the frequency range is valid
     if start_freq < 0 or stop_freq > sr/2:
@@ -161,16 +165,134 @@ def IPD_spect(input_file, sr, start_freq=50, stop_freq=620, wrapped=False, plots
     return IPD_spectra
 
 
+def sinIPD_spect(input_file, sr, window_size=4096, overlap=0.75, start_freq=50, stop_freq=620, wrapped=False, plots=False):
+    # Calculate the sin(IPD) spectragram of a stereo or binaural audio file
+    
+    # Setup the parameters
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
 
-def ILR_spect(input_file, sr, start_freq=1700, stop_freq=4600, plots=False):
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
+
+    # check if the frequency range is valid
+    if start_freq < 0 or stop_freq > sr/2:
+        raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+    if start_freq >= stop_freq:
+        raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+
+    # sinIPD Setup
+    IPDstartbin = int(np.round(start_freq/bin_width))
+    IPDstopbin = int(np.round(stop_freq/bin_width))
+
+    # Split Channels
+    left_td = input_file[0, :]
+    right_td = input_file[1, :]
+
+    # Complex STFT
+    left = librosa.stft(left_td, hop_length=hop_size, n_fft=window_size, win_length=window_size, window=window_type)
+    right = librosa.stft(right_td, hop_length=hop_size, n_fft=window_size, win_length=window_size, window=window_type)
+
+    # Calculate Magnitude and Phase
+    left_mag, left_phase = librosa.magphase(left)
+    right_mag, right_phase = librosa.magphase(right)
+
+    left_phase = np.angle(left_phase)
+    right_phase = np.angle(right_phase)
+
+    # Calculate the Phase Differences
+    phasediffs = left_phase - right_phase
+
+    if wrapped == True:
+        # Wrap phase differences to be between -pi and pi
+        phasediffs = np.mod(phasediffs + np.pi, 2*np.pi) - np.pi
+
+    # Apply sine and crop frequency range
+    sinIPD_spectra = np.sin(phasediffs[IPDstartbin:IPDstopbin, :])
+
+    # show the sinIPD spectra
+    if plots:
+        plot.figure()
+        plot.imshow(sinIPD_spectra, cmap='danlab2', aspect='auto', origin='lower', interpolation='nearest')
+        plot.colorbar()
+        plot.ylabel('Frequency (Hz)')
+        plot.xlabel('Time (frames)')
+        plot.title('sin(Interaural Phase Difference)')
+        plot.yticks(np.linspace(0, IPDstopbin - IPDstartbin, 5), np.round(np.linspace(start_freq, stop_freq, 5)).astype(int))
+
+    return sinIPD_spectra
+
+
+def cosIPD_spect(input_file, sr, window_size=4096, overlap=0.75, start_freq=50, stop_freq=620, wrapped=False, plots=False):
+    # Calculate the cos(IPD) spectragram of a stereo or binaural audio file
+    
+    # Setup the parameters
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
+
+    # check if the frequency range is valid
+    if start_freq < 0 or stop_freq > sr/2:
+        raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+    if start_freq >= stop_freq:
+        raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+
+    # cosIPD Setup
+    IPDstartbin = int(np.round(start_freq/bin_width))
+    IPDstopbin = int(np.round(stop_freq/bin_width))
+
+    # Split Channels
+    left_td = input_file[0, :]
+    right_td = input_file[1, :]
+
+    # Complex STFT
+    left = librosa.stft(left_td, hop_length=hop_size, n_fft=window_size, win_length=window_size, window=window_type)
+    right = librosa.stft(right_td, hop_length=hop_size, n_fft=window_size, win_length=window_size, window=window_type)
+
+    # Calculate Magnitude and Phase
+    left_mag, left_phase = librosa.magphase(left)
+    right_mag, right_phase = librosa.magphase(right)
+
+    left_phase = np.angle(left_phase)
+    right_phase = np.angle(right_phase)
+
+    # Calculate the Phase Differences
+    phasediffs = left_phase - right_phase
+
+    if wrapped == True:
+        # Wrap phase differences to be between -pi and pi
+        phasediffs = np.mod(phasediffs + np.pi, 2*np.pi) - np.pi
+
+    # Apply cosine and crop frequency range
+    cosIPD_spectra = np.cos(phasediffs[IPDstartbin:IPDstopbin, :])
+
+    # show the cosIPD spectra
+    if plots:
+        plot.figure()
+        plot.imshow(cosIPD_spectra, cmap='danlab2', aspect='auto', origin='lower', interpolation='nearest')
+        plot.colorbar()
+        plot.ylabel('Frequency (Hz)')
+        plot.xlabel('Time (frames)')
+        plot.title('cos(Interaural Phase Difference)')
+        plot.yticks(np.linspace(0, IPDstopbin - IPDstartbin, 5), np.round(np.linspace(start_freq, stop_freq, 5)).astype(int))
+
+    return cosIPD_spectra
+
+
+def ILR_spect(input_file, sr, window_size=4096, overlap=0.75, start_freq=1700, stop_freq=4600, plots=False):
     # Calculate the ILR spectra of a stereo audio file
     
     # Setup the parameters
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
 
-    window_size = 4096                          # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
-    bin_width = sr/window_size                   # Width of the frequency bins
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
 
     # check if the frequency range is valid
     if start_freq < 0 or stop_freq > sr/2:
@@ -232,16 +354,18 @@ def ILR_spect(input_file, sr, start_freq=1700, stop_freq=4600, plots=False):
 
     return ILR_spectra
 
-def ILD_spect(input_file, sr, start_freq=1700, stop_freq=4600, plots=False):
+
+def ILD_spect(input_file, sr, window_size=4096, overlap=0.75,start_freq=1700, stop_freq=4600, plots=False):
     # Calculate the ILD spectra of a stereo audio file
 
     # Setup the parameters
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
 
-    window_size = 4096                          # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
-    bin_width = sr/window_size                   # Width of the frequency bins
-
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
+   
     # check if the frequency range is valid
     if start_freq < 0 or stop_freq > sr/2:
         raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
@@ -296,6 +420,88 @@ def ILD_spect(input_file, sr, start_freq=1700, stop_freq=4600, plots=False):
         
 
     return ILD_spectra
+
+
+def IC_spect(input_file, sr, window_size=4096, overlap=0.75, start_freq=50, stop_freq=620, time_smooth=5, plots=False):
+    # Calculate the interaural coherence spectragram of a stereo or binaural audio file
+    
+    # Setup the parameters
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+    if time_smooth < 1:
+        raise ValueError("time_smooth must be greater than or equal to 1.")
+
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr / window_size                            # Width of the frequency bins
+
+    # check if the frequency range is valid
+    if start_freq < 0 or stop_freq > sr/2:
+        raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+    if start_freq >= stop_freq:
+        raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+
+    # IC Setup
+    ICstartbin = int(np.round(start_freq / bin_width))
+    ICstopbin = int(np.round(stop_freq / bin_width))
+
+    # Split Channels
+    left_td = input_file[0, :]
+    right_td = input_file[1, :]
+
+    # Complex STFT
+    left = librosa.stft(left_td, hop_length=hop_size, n_fft=window_size, win_length=window_size, window=window_type)
+    right = librosa.stft(right_td, hop_length=hop_size, n_fft=window_size, win_length=window_size, window=window_type)
+
+    # Limit frequency range
+    left = left[ICstartbin:ICstopbin, :]
+    right = right[ICstartbin:ICstopbin, :]
+
+    # Calculate cross-spectrum and auto-spectra
+    cross_spec = left * np.conj(right)
+    left_power = np.abs(left) ** 2
+    right_power = np.abs(right) ** 2
+
+    # Get the number of bins and frames
+    [numbins, numframes] = np.shape(left)
+
+    # IC spectrogram Setup
+    IC_spectra = np.zeros((numbins, numframes))
+
+    # Half window for temporal smoothing to centre on current frame
+    t_half = time_smooth // 2
+
+    # Calculate local coherence with temporal smoothing 
+    # where time_smooth is the number of frames to smooth
+    for frame in range(numframes):
+        t0 = max(0, frame - t_half)
+        t1 = min(numframes, frame + t_half + 1)
+
+        for bin in range(numbins):
+            local_cross = cross_spec[bin, t0:t1]
+            local_left = left_power[bin, t0:t1]
+            local_right = right_power[bin, t0:t1]
+
+            numerator = np.abs(np.sum(local_cross))
+            denominator = np.sqrt(np.sum(local_left) * np.sum(local_right))
+
+            if denominator > 1e-6:
+                IC_spectra[bin, frame] = numerator / denominator
+            else:
+                IC_spectra[bin, frame] = 0
+
+    # show the IC spectra
+    if plots:
+        plot.figure()
+        plot.imshow(IC_spectra, cmap='danlab2', aspect='auto', origin='lower', interpolation='nearest')
+        plot.colorbar()
+        plot.ylabel('Frequency (Hz)')
+        plot.xlabel('Time (frames)')
+        plot.title('Interaural Coherence')
+        plot.yticks(np.linspace(0, ICstopbin - ICstartbin, 5), np.round(np.linspace(start_freq, stop_freq, 5)).astype(int))
+
+    return IC_spectra
+
 
 # Function to compare ILR Spectra
 def ILR_spect_diff(ref, test, sr, title="", plots=False): 
@@ -446,7 +652,8 @@ def ITD_spect_diff(ref, test, sr, title="", plots=False):
 
     return mean_diff_degrees, mean_diff_ITD
 
-def ITD_hist(input_file, sr, hist_size=400, start_freq=50, stop_freq=620, normalize=True, energyweighting=True, plots=False):
+
+def ITD_hist(input_file, sr, window_size=4096, overlap=0.75, hist_size=400, start_freq=50, stop_freq=620, normalize=True, energyweighting=True, plots=False):
     # Calculate the ITD histogram of a stereo or binaural audio file
 
     # check if the frequency range is valid
@@ -454,15 +661,18 @@ def ITD_hist(input_file, sr, hist_size=400, start_freq=50, stop_freq=620, normal
         raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
     if start_freq >= stop_freq:
         raise ValueError("Invalid frequency range. Valid range is [0, {}]".format(sr/2))
+    
+    # Check if overlap is valid
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
 
     # Get the ITD spectrogram
-    ITD_spectra = ITD_spect(input_file, sr, start_freq=start_freq, stop_freq=stop_freq, plots=False)
+    ITD_spectra = ITD_spect(input_file, sr, window_size=window_size, overlap=overlap, start_freq=start_freq, stop_freq=stop_freq, plots=False)
   
     # Setup the parameters
-    window_size = 4096                         # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
-    bin_width = sr/window_size                   # Width of the frequency bins
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
      
     # Note 
     # Idea - Try modify to use ILR as estimate of first arriving ear
@@ -530,18 +740,22 @@ def ITD_hist(input_file, sr, hist_size=400, start_freq=50, stop_freq=620, normal
     
     return ITD_histogram 
 
-def ILR_hist(input_file, sr, hist_size=400, start_freq=1700, stop_freq=4600, normalize=True, energyweighting=True, plots=False):
+
+def ILR_hist(input_file, sr, window_size=4096, overlap=0.75, hist_size=400, start_freq=1700, stop_freq=4600, normalize=True, energyweighting=True, plots=False):
     # Calculate the ILR histogram of a stereo or binaural audio file
 
+    # Check if overlap is valid
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+
     # Get the ILR spectrogram
-    ILR_spectra = ILR_spect(input_file, sr, start_freq=start_freq, stop_freq=stop_freq, plots=False)
+    ILR_spectra = ILR_spect(input_file, sr, window_size=window_size, overlap=overlap, start_freq=start_freq, stop_freq=stop_freq, plots=False)
 
     # Setup the parameters
     exponent = 3 
-    window_size = 4096                         # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
-    bin_width = sr/window_size                   # Width of the frequency bins
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
 
     # ILR Histogram Setup
     # (1700 - 4600) normally or (1800 - 5600 when dealing with Virtual rendering)
@@ -609,18 +823,22 @@ def ILR_hist(input_file, sr, hist_size=400, start_freq=1700, stop_freq=4600, nor
         
     return ILR_histogram
 
-def ILD_hist(input_file, sr, hist_size=400, start_freq=1700, stop_freq=4600, dB_range=24, normalize=True, energyweighting=True , plots=False):
+
+def ILD_hist(input_file, sr, window_size=4096, overlap=0.75, hist_size=400, start_freq=1700, stop_freq=4600, dB_range=24, normalize=True, energyweighting=True , plots=False):
     # Calculate the ILD histogram of a stereo or binaural audio file
 
+    # Check if overlap is valid
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+
     # Get the ILD spectrogram
-    ILD_spectra = ILD_spect(input_file, sr, start_freq=start_freq, stop_freq=stop_freq, plots=False)
+    ILD_spectra = ILD_spect(input_file, sr, window_size=window_size, overlap=overlap, start_freq=start_freq, stop_freq=stop_freq, plots=False)
 
     # Setup the parameters
     exponent = 3
-    window_size = 4096                         # Window size for STFT
-    hop_size = round(window_size/4)             # Analysis hop size
-    window_type = np.hanning(window_size)       # Window function
-    bin_width = sr/window_size                   # Width of the frequency bins
+    hop_size = max(1, round(window_size * (1 - overlap)))   # Analysis hop size
+    window_type = np.hanning(window_size)                   # Window function
+    bin_width = sr/window_size                              # Width of the frequency bins
 
     # Notes
     # (1700 - 4600) normally or (1800 - 5600 when dealing with Virtual rendering)
@@ -687,6 +905,7 @@ def ILD_hist(input_file, sr, hist_size=400, start_freq=1700, stop_freq=4600, dB_
         axs.axhline(hist_size/2, color='white', linestyle='--', linewidth=0.7)
         
     return ILD_histogram
+
 
 # Function to compare ITD Spectra
 def ITD_sim(ref, test, sr, mode='signed', plots=False): 
