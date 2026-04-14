@@ -653,6 +653,73 @@ def ITD_spect_diff(ref, test, sr, title="", plots=False):
     return mean_diff_degrees, mean_diff_ITD
 
 
+def IPD_spect_diff(ref, test, sr, window_size=4096, overlap=0.75, start_freq=50, stop_freq=620, title="", plots=False):
+    # Calculate the IPD spectrogram difference of two stereo or binaural audio files
+    # using sine/cosine decomposition to avoid phase wrap discontinuities
+
+    # Check that overlap value is valid
+    if overlap < 0 or overlap >= 1:
+        raise ValueError("Invalid overlap. Valid range is [0, 1).")
+
+    # Get sin and cos IPD spectra
+    sinIPD_ref = sinIPD_spect(ref, sr, window_size=window_size, overlap=overlap,
+                              start_freq=start_freq, stop_freq=stop_freq,
+                              wrapped=True, plots=False)
+    sinIPD_test = sinIPD_spect(test, sr, window_size=window_size, overlap=overlap,
+                               start_freq=start_freq, stop_freq=stop_freq,
+                               wrapped=True, plots=False)
+
+    cosIPD_ref = cosIPD_spect(ref, sr, window_size=window_size, overlap=overlap,
+                              start_freq=start_freq, stop_freq=stop_freq,
+                              wrapped=True, plots=False)
+    cosIPD_test = cosIPD_spect(test, sr, window_size=window_size, overlap=overlap,
+                               start_freq=start_freq, stop_freq=stop_freq,
+                               wrapped=True, plots=False)
+
+    # Circular IPD difference on the unit circle
+    diff = np.sqrt((cosIPD_test - cosIPD_ref)**2 + (sinIPD_test - sinIPD_ref)**2)
+
+    # Summary metrics
+    mean_IPD_diff = np.nanmean(np.mean(diff, axis=0))
+    max_IPD_diff = np.nanmax(np.mean(diff, axis=0))
+
+    IPD_time_diff = np.nanmean(diff, axis=0)
+
+    if plots:
+        # Setup the parameters for y-axis labels
+        bin_width = sr / window_size
+        IPDstartbin = int(np.round(start_freq / bin_width))
+        IPDstopbin = int(np.round(stop_freq / bin_width))
+
+        plot.rcParams.update({'font.size': 14})
+        fig, axs = plot.subplots(1, 2, figsize=(12, 5))
+        fig.suptitle(title)
+        fig.subplots_adjust(top=0.82)
+
+        axs[0].imshow(diff, cmap='danlab2', aspect='auto', origin='lower', interpolation='nearest')
+        axs[0].set_title('IPD Difference Spectrogram')
+        axs[0].set_ylabel('Frequency (Hz)')
+        axs[0].set_xlabel('Time (frames)')
+        axs[0].set_yticks(np.linspace(0, IPDstopbin - IPDstartbin, 5))
+        axs[0].set_yticklabels(np.round(np.linspace(start_freq, stop_freq, 5)).astype(int))
+
+        axs[1].plot(IPD_time_diff)
+        axs[1].axhline(0, color='lightgray', linestyle='--')
+        axs[1].set_title('IPD Difference')
+        axs[1].text(
+            0.95, 0.95,
+            f"mean = {mean_IPD_diff:.2f}\nmax = {max_IPD_diff:.2f}",
+            ha='right', va='top', transform=axs[1].transAxes,
+            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')
+        )
+        axs[1].set_ylim(0, 2)
+        axs[1].set_xlim(0, diff.shape[1])
+        axs[1].set_xlabel('Time (frames)')
+        axs[1].set_ylabel('Circular IPD Difference')
+
+    return mean_IPD_diff, max_IPD_diff
+
+
 def ITD_hist(input_file, sr, window_size=4096, overlap=0.75, hist_size=400, start_freq=50, stop_freq=620, normalize=True, energyweighting=True, plots=False):
     # Calculate the ITD histogram of a stereo or binaural audio file
 
